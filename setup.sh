@@ -4,8 +4,8 @@ set -e
 echo "[INFO] Starting Minecraft Manager deployment..."
 
 # Create users if not already present
-id minecraft &>/dev/null || useradd -m -r -s /bin/bash minecraft
-id minecraft-manager &>/dev/null || useradd -m -r -s /bin/bash minecraft-manager
+id minecraft &>/dev/null || useradd -m -r -s -d /bin/bash minecraft
+id minecraft-manager &>/dev/null || useradd -d -m -r -s /bin/bash minecraft-manager
 
 echo "[INFO] Creating directory structure..."
 mkdir -p /home/minecraft/Minecraft/mods
