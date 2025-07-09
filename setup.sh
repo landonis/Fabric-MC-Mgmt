@@ -7,6 +7,7 @@ echo "🚀 Starting Minecraft Manager deployment..."
 # Create necessary users and dirs
 useradd -m -r -s /bin/bash minecraft || true
 mkdir -p /home/minecraft/Minecraft
+mkdir -p /home/minecraft-manager/minecraft-manager
 mkdir -p /home/minecraft-manager/minecraft-data/scripts
 
 # Install dependencies
