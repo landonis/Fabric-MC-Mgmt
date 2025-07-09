@@ -73,6 +73,7 @@ cp -r dist/* /var/www/html/
 
 echo "[INFO] Building Fabric mod..."
 cd ../mods/player-viewer
+chmod +x ./gradlew
 ./gradlew build
 cp build/libs/*.jar /home/minecraft/Minecraft/mods/player-viewer-mod.jar
 
@@ -118,7 +119,7 @@ iptables -P INPUT DROP
 netfilter-persistent save
 
 echo "[INFO] Enabling and starting services..."
-systemctl daemon-reexec
+systemctl daemon-reload
 systemctl enable minecraft-server
 systemctl enable minecraft-manager
 systemctl restart minecraft-server
