@@ -1,4 +1,5 @@
 import express from 'express';
+import session from 'express-session';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -17,6 +18,13 @@ dotenv.config({
 });
 
 const app = express();
+// ─── Session middleware ──────────────────────────────────────────────────────
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'replace-with-a-secure-random-string',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: process.env.NODE_ENV === 'production', maxAge: 1000 * 60 * 60 * 24 }
+}));
 const port = process.env.PORT || 3001;
 
 // Initialize database

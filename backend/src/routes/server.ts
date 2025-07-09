@@ -1,6 +1,5 @@
 import express from 'express';
 import { getServerSeed } from '../utils/seed';
-import express from 'express';
 import { exec } from 'child_process';
 import authenticateToken from '../middleware/auth';
 

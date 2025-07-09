@@ -128,11 +128,20 @@ router.get('/users', async (_req, res) => {
 router.post('/register', async (req, res) => {
   const { username, password, isAdmin } = req.body;
   try {
-    await db.run('INSERT INTO users (username, password, isAdmin) VALUES (?, ?, ?)', [
-      username, password, isAdmin ? 1 : 0
-    ]);
-    req.session.user = { id: user.id, username: user.username, isAdmin: !!user.isAdmin };
-    res.json({ success: true });
+    const SALT_ROUNDS = 10;
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const result = await db.run(
+      'INSERT INTO users (username, password_hash, isAdmin) VALUES (?, ?, ?)',
+      [username, passwordHash, isAdmin ? 1 : 0]
+    );
+    const userId = (result as any).lastID;
+    req.session.user = { id: userId, username, isAdmin: !!isAdmin };
+    res.json({ id: userId, username, isAdmin: !!isAdmin });
+  } catch (err) {
+    console.error('Register error', err);
+    res.status(500).json({ error: 'User creation failed' });
+  }
+});
   } catch (err) {
     console.error('Register error', err);
     res.status(500).json({ error: 'User creation failed' });

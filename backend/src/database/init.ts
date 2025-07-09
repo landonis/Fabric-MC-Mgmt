@@ -61,7 +61,7 @@ export const initDatabase = () => {
   console.log('Database initialized successfully');
 };
 
-const createDefaultAdmin = async () => {
+const createDefaultAdmin = () => {
   try {
     // Check if any users exist
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
@@ -71,7 +71,7 @@ const createDefaultAdmin = async () => {
       
       // Create default admin with temporary password
       const defaultPassword = 'admin';
-      const passwordHash = await bcrypt.hash(defaultPassword, SALT_ROUNDS);
+      const passwordHash = bcrypt.hashSync(defaultPassword, SALT_ROUNDS);
       
       db.prepare(`
         INSERT INTO users (username, password_hash, must_change_password, is_admin) 
