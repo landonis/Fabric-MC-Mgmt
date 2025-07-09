@@ -22,6 +22,7 @@ npm install -g typescript
 
 echo "[INFO] Setting up backend..."
 cd backend
+npm install --save-dev @types/node
 npm install
 npx tsc
 
