@@ -7,7 +7,6 @@ echo "🚀 Starting Minecraft Manager deployment..."
 # Create necessary users and dirs
 useradd -m -r -s /bin/bash minecraft || true
 mkdir -p /home/minecraft/Minecraft
-mkdir -p /home/minecraft-manager/minecraft-manager
 mkdir -p /home/minecraft-manager/minecraft-data/scripts
 
 # Install dependencies
@@ -15,16 +14,15 @@ apt update
 apt install -y openjdk-21-jdk curl wget unzip sqlite3 nginx nodejs npm git
 
 # Set up environment
-cd /home/minecraft-manager/minecraft-manager
+cd /home/minecraft-manager
 
 # === BACKEND ===
 echo "[INFO] Installing global TypeScript compiler..."
+npm install -g typescript
 
 echo "[INFO] Setting up backend..."
 cd backend
 npm install
-npm install --save-dev @types/node
-
 npx tsc
 
 # Create backend systemd unit
@@ -35,7 +33,7 @@ After=network.target
 
 [Service]
 User=minecraft
-WorkingDirectory=/home/minecraft-manager/minecraft-manager/backend
+WorkingDirectory=/home/minecraft-manager/backend
 ExecStart=/usr/bin/npm start
 Restart=always
 
