@@ -48,7 +48,7 @@ All dependencies are automatically installed by the setup script:
 
 1. **Download and configure the setup script**:
    ```bash
-  
+   wget https://raw.githubusercontent.com/landonis/Fabric-MC-Mgmt/main/deployment/setup.sh
    chmod +x setup.sh
    ```
 
