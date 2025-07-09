@@ -19,7 +19,8 @@ cd /home/minecraft-manager
 # === BACKEND ===
 cd backend
 npm install
-npm run build
+npm install typescript --save-dev
+npx tsc
 
 # Create backend systemd unit
 cat <<EOF > /etc/systemd/system/minecraft-manager.service
