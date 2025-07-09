@@ -14,16 +14,16 @@ apt update
 apt install -y openjdk-21-jdk curl wget unzip sqlite3 nginx nodejs npm git
 
 # Set up environment
-cd /home/minecraft-manager
+cd /home/minecraft-manager/minecraft-manager
 
 # === BACKEND ===
 echo "[INFO] Installing global TypeScript compiler..."
-npm install -g typescript
 
 echo "[INFO] Setting up backend..."
 cd backend
-npm install --save-dev @types/node
 npm install
+npm install --save-dev @types/node
+
 npx tsc
 
 # Create backend systemd unit
