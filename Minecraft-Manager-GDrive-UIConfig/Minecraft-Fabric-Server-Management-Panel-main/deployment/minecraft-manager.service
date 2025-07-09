@@ -1,0 +1,19 @@
+[Unit]
+Description=Minecraft Server Manager Web Application
+After=network.target
+
+[Service]
+Type=simple
+User=minecraft-manager
+Group=minecraft-manager
+WorkingDirectory=/home/ubuntu/minecraft-manager
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntu/minecraft-manager/.env
+ExecStart=/usr/bin/node /home/ubuntu/minecraft-manager/backend/dist/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
