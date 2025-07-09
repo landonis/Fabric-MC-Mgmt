@@ -1,41 +1,44 @@
 #!/bin/bash
-npm install -g typescript
 set -e
 
-echo "🚀 Starting Minecraft Manager deployment..."
+echo "[INFO] Starting Minecraft Manager deployment..."
 
-# Create necessary users and dirs
-useradd -m -r -s /bin/bash minecraft || true
-useradd -m -r -s /bin/bash minecraft-manager || true
-mkdir -p /home/minecraft/Minecraft
+# Create users if not already present
+id minecraft &>/dev/null || useradd -m -r -s /bin/bash minecraft
+id minecraft-manager &>/dev/null || useradd -m -r -s /bin/bash minecraft-manager
+
+echo "[INFO] Creating directory structure..."
+mkdir -p /home/minecraft/Minecraft/mods
 mkdir -p /home/minecraft-manager/minecraft-manager
-mkdir -p /home/minecraft-manager/minecraft-data/scripts
+chown -R minecraft-manager:minecraft-manager /home/minecraft-manager
 
-# Install dependencies
-apt update
-apt install -y openjdk-21-jdk curl wget unzip sqlite3 nginx nodejs npm git
-
-# Set up environment
+echo "[INFO] Setting up application code..."
 cd /home/minecraft-manager/minecraft-manager
 
-# === BACKEND ===
-echo "[INFO] Installing global TypeScript compiler..."
-npm install -g typescript
+echo "[INFO] Cloning repository..."
+git clone https://github.com/YOUR_REPO_HERE.git . # ← replace with your repo if not local
 
-echo "[INFO] Setting up backend..."
+echo "[INFO] Generating secure configuration..."
+cp .env.example .env || touch .env
+
+echo "[INFO] Installing application dependencies..."
 cd backend
 npm install
+npm install typescript --save-dev
 npx tsc
 
-# Create backend systemd unit
+echo "[INFO] Building backend..."
+npm run build
+
+echo "[INFO] Creating backend systemd service..."
 cat <<EOF > /etc/systemd/system/minecraft-manager.service
 [Unit]
 Description=Minecraft Manager Backend
 After=network.target
 
 [Service]
-User=minecraft
-WorkingDirectory=/home/minecraft-manager/backend
+User=minecraft-manager
+WorkingDirectory=/home/minecraft-manager/minecraft-manager/backend
 ExecStart=/usr/bin/npm start
 Restart=always
 
@@ -43,29 +46,25 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reexec
-systemctl enable minecraft-manager
-systemctl restart minecraft-manager
-
-# === FRONTEND ===
+echo "[INFO] Setting up frontend..."
 cd ../frontend
 npm install
 npm run build
+mkdir -p /var/www/html
 cp -r dist/* /var/www/html/
 
-# === MOD + SERVER ===
+echo "[INFO] Building Fabric mod..."
 cd ../mods/player-viewer
 ./gradlew build
-
 cp build/libs/*.jar /home/minecraft/Minecraft/mods/player-viewer-mod.jar
 
-# === Fabric installer and server ===
+echo "[INFO] Installing Minecraft Fabric server..."
 cd /home/minecraft/Minecraft
 curl -O https://meta.fabricmc.net/v2/versions/installer/0.11.2/fabric-installer-0.11.2.jar
 java -jar fabric-installer-0.11.2.jar server -mcversion 1.21.7 -downloadMinecraft
 echo "eula=true" > eula.txt
 
-# Create Minecraft systemd unit
+echo "[INFO] Creating Minecraft server systemd service..."
 cat <<EOF > /etc/systemd/system/minecraft-server.service
 [Unit]
 Description=Minecraft Fabric Server
@@ -81,30 +80,33 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reexec
-systemctl enable minecraft-server
-systemctl restart minecraft-server
-
-# === WebSocket Mod Env File ===
+echo "[INFO] Setting WebSocket .env default..."
+mkdir -p /home/minecraft/Minecraft/mods/player-viewer
 echo "WEBSOCKET_SERVER=ws://localhost:3020" > /home/minecraft/Minecraft/mods/player-viewer/.env
+chown -R minecraft:minecraft /home/minecraft/Minecraft
 
-# === Health Check ===
-bash deployment/post_deploy_check.sh
+echo "[INFO] Installing rclone for Google Drive backup..."
+apt update
+apt install -y rclone
 
-echo "✅ Setup complete."
-
-
-# === iptables firewall rules ===
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT   # SSH
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT   # Web server (frontend)
-iptables -A INPUT -p tcp --dport 3020 -j ACCEPT # WebSocket server
-iptables -A INPUT -p tcp --dport 25565 -j ACCEPT # Minecraft server
+echo "[INFO] Installing iptables-persistent and applying firewall rules..."
+apt install -y iptables iptables-persistent
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 3020 -j ACCEPT
+iptables -A INPUT -p tcp --dport 25565 -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -P INPUT DROP
-
-
-# === persist iptables rules ===
-echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-apt install -y iptables-persistent
 netfilter-persistent save
+
+echo "[INFO] Enabling and starting services..."
+systemctl daemon-reexec
+systemctl enable minecraft-server
+systemctl enable minecraft-manager
+systemctl restart minecraft-server
+systemctl restart minecraft-manager
+
+echo "[INFO] Running health check..."
+bash deployment/post_deploy_check.sh
+
+echo "✅ Setup complete and services running."
