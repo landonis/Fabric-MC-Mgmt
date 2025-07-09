@@ -34,7 +34,7 @@ After=network.target
 
 [Service]
 User=minecraft
-WorkingDirectory=/home/minecraft-manager/backend
+WorkingDirectory=/home/minecraft-manager/minecraft-manager/backend
 ExecStart=/usr/bin/npm start
 Restart=always
 
