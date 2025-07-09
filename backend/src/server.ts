@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { initDatabase } from './database/init';
+import { checkDatabaseHealth } from './database/init'; 
+
 import authRoutes from './routes/auth';
 import serverRoutes from './routes/server';
 import modRoutes from './routes/mods';
