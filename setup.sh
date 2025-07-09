@@ -16,9 +16,11 @@ echo "[INFO] Setting up application code..."
 cd /home/minecraft-manager/minecraft-manager
 
 echo "[INFO] Cloning repository..."
-if [ ! -d ".git" ]; then
+if [ ! -d ".git" ] || ! git remote get-url origin | grep -q "github.com/landonis/Fabric-MC-Mgmt"; then
+  rm -rf ./*
   git clone https://github.com/landonis/Fabric-MC-Mgmt.git .
 fi
+
  # ← replace with your repo if not local
 
 echo "[INFO] Generating secure configuration..."
