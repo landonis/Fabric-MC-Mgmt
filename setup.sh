@@ -16,16 +16,31 @@ echo "[INFO] Setting up application code..."
 cd /home/minecraft-manager/minecraft-manager
 
 echo "[INFO] Cloning repository..."
-git clone https://github.com/YOUR_REPO_HERE.git . # ← replace with your repo if not local
+if [ ! -d ".git" ]; then
+  git clone https://github.com/landonis/Fabric-MC-Mgmt.git .
+fi
+ # ← replace with your repo if not local
 
 echo "[INFO] Generating secure configuration..."
 cp .env.example .env || touch .env
 
 echo "[INFO] Installing application dependencies..."
+apt update
+apt install -y openjdk-21-jdk curl wget unzip sqlite3 nodejs npm git nginx
+
 cd backend
 npm install
-npm install typescript --save-dev
-npx tsc
+npm install --save-dev typescript \
+  @types/node \
+  @types/express \
+  @types/jsonwebtoken \
+  @types/bcrypt \
+  @types/multer \
+  @types/cors \
+  @types/ws \
+  @types/better-sqlite3
+npm install ws
+
 
 echo "[INFO] Building backend..."
 npm run build
@@ -49,6 +64,7 @@ EOF
 echo "[INFO] Setting up frontend..."
 cd ../frontend
 npm install
+
 npm run build
 mkdir -p /var/www/html
 cp -r dist/* /var/www/html/
