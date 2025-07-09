@@ -1,5 +1,5 @@
 #!/bin/bash
-
+npm install -g typescript
 set -e
 
 echo "🚀 Starting Minecraft Manager deployment..."
