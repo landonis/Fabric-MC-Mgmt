@@ -27,11 +27,11 @@ FABRIC_VERSION="0.16.14"
 NODE_VERSION="18"
 
 # System paths
-APP_DIR="/home/ubuntu/minecraft-manager"
-MINECRAFT_DIR="/home/ubuntu/Minecraft"
-DATA_DIR="/home/ubuntu/minecraft-data"
+APP_DIR="/opt/minecraft-manager"
+MINECRAFT_DIR="/opt/Minecraft"
+DATA_DIR="/opt/minecraft-data"
 LOG_DIR="/var/log/minecraft-manager"
-BACKUP_DIR="/home/ubuntu/minecraft-backups"
+BACKUP_DIR="/opt/minecraft-backups"
 
 # Error handling
 error_exit() {
