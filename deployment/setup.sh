@@ -124,7 +124,16 @@ apt install -y -qq \
     python3 \
     python3-dev \
     make \
-    g++
+    g++ \
+    supervisor \
+    rsyslog \
+    cron \
+    ntp
+
+# Configure NTP for accurate time
+print_status "Configuring NTP..."
+systemctl enable ntp
+systemctl start ntp
 
 # Install Node.js
 print_status "Installing Node.js $NODE_VERSION..."
@@ -912,3 +921,19 @@ echo ""
 echo -e "${CYAN}📖 For detailed documentation, see README.md${NC}"
 echo -e "${CYAN}🐛 For issues and support, check the GitHub repository${NC}"
 echo ""
+
+# Run additional security hardening
+if [[ -f "deployment/security-hardening.sh" ]]; then
+    print_status "Applying additional security hardening..."
+    bash deployment/security-hardening.sh
+fi
+
+# Set up monitoring
+if [[ -f "deployment/monitoring.sh" ]]; then
+    print_status "Setting up monitoring and alerting..."
+    bash deployment/monitoring.sh
+fi
+
+print_success "Production deployment completed with security hardening and monitoring!"
+print_status "Run '/usr/local/bin/minecraft-security-audit.sh' to verify security configuration"
+print_status "Run '/usr/local/bin/minecraft-monitor.sh' for real-time monitoring"

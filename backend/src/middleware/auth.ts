@@ -1,10 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from '../types/User';
+import rateLimit from 'express-rate-limit';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
 }
+
+// Rate limiting for authentication endpoints
+export const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts per window per IP
+  message: { error: 'Too many authentication attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+});
 
 const authenticateToken = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
@@ -22,6 +33,7 @@ const authenticateToken = (req: AuthenticatedRequest, res: Response, next: NextF
 
   jwt.verify(token, secret, (err: any, decoded: any) => {
     if (err) {
+      console.warn(`JWT verification failed: ${err.message} for IP: ${req.ip}`);
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
 

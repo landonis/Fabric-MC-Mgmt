@@ -20,6 +20,17 @@ export const db = new Database(DB_PATH);
 export const initDatabase = () => {
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
+  
+  // Enable WAL mode for better concurrency
+  db.pragma('journal_mode = WAL');
+  
+  // Set secure temp store
+  db.pragma('secure_delete = ON');
+  
+  // Optimize performance
+  db.pragma('synchronous = NORMAL');
+  db.pragma('cache_size = 1000');
+  db.pragma('temp_store = MEMORY');
 
   // Create users table
   db.exec(`
@@ -29,7 +40,38 @@ export const initDatabase = () => {
       password_hash TEXT NOT NULL,
       must_change_password BOOLEAN DEFAULT 0,
       is_admin BOOLEAN DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_login DATETIME,
+      failed_login_attempts INTEGER DEFAULT 0,
+      locked_until DATETIME
+    )
+  `);
+
+  // Create sessions table for session management
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  // Create audit log table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      action TEXT NOT NULL,
+      resource TEXT,
+      details TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
     )
   `);
 
@@ -41,7 +83,10 @@ export const initDatabase = () => {
       original_name TEXT NOT NULL,
       size INTEGER NOT NULL,
       active BOOLEAN DEFAULT 1,
-      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      uploaded_by INTEGER,
+      checksum TEXT,
+      FOREIGN KEY (uploaded_by) REFERENCES users (id) ON DELETE SET NULL
     )
   `);
 
@@ -51,8 +96,20 @@ export const initDatabase = () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       level TEXT NOT NULL,
-      message TEXT NOT NULL
+      message TEXT NOT NULL,
+      source TEXT DEFAULT 'minecraft-server'
     )
+  `);
+
+  // Create indexes for performance
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_server_logs_timestamp ON server_logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_server_logs_level ON server_logs(level);
   `);
 
   // Create default admin user if no users exist
