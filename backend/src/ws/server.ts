@@ -4,10 +4,10 @@ import { registerLivePlayer } from '../routes/players';
 export const wss = new WebSocketServer({ port: 3020 });
 const clients: Record<string, WebSocket> = {};
 
-wss.on('connection', (socket, req) => {
+wss.on('connection', (socket:any, req:any) => {
   console.log('[WS] New connection from mod');
 
-  socket.on('message', (msg: string) => {
+  socket.on('message', (msg: any) => {
     try {
       const parsed = JSON.parse(msg.toString());
       if (parsed.uuid && parsed.name) {
