@@ -7,7 +7,7 @@ const clients: Record<string, WebSocket> = {};
 wss.on('connection', (socket, req) => {
   console.log('[WS] New connection from mod');
 
-  socket.on('message', (msg) => {
+  socket.on('message', (msg: string) => {
     try {
       const parsed = JSON.parse(msg.toString());
       if (parsed.uuid && parsed.name) {
