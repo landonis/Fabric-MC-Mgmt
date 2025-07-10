@@ -14,7 +14,7 @@ A production-ready, full-stack web application for managing Minecraft Fabric ser
 
 1. **Download and run the setup script**:
    ```bash
-   wget https://raw.githubusercontent.com/yourusername/minecraft-server-manager/main/deployment/setup.sh
+   wget https://raw.githubusercontent.com/landonis/Fabric-MC-Mgmt/main/deployment/setup.sh
    chmod +x setup.sh
    sudo ./setup.sh
    ```
