@@ -1,46 +1,4 @@
 #!/bin/bash
-set -e
-
-# Bootstrap system packages (safe for reruns)
-echo "📦 Installing system packages..."
-
-# === Ensure Java 21 is installed and set as default ===
-if ! java -version 2>&1 | grep -q 'version "21'; then
-    echo "⚙️ Installing Java 21..."
-    apt install -y openjdk-21-jre-headless
-    update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-21-openjdk-amd64/bin/java 1
-    update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
-else
-    echo "✅ Java 21 is already installed and active."
-fi
-
-export DEBIAN_FRONTEND=noninteractive
-apt update -y
-apt install -y curl git wget ufw nginx fail2ban openssl     openjdk-21-jre-headless nodejs npm software-properties-common
-
-# Optional: Snap install certbot if not present
-if ! command -v certbot &>/dev/null; then
-    echo "🔐 Installing certbot with snap..."
-    snap install core && snap refresh core
-    snap install --classic certbot
-    ln -sf /snap/bin/certbot /usr/bin/certbot
-fi
-
-# Create dedicated users if not exists
-id -u minecraft &>/dev/null || useradd -m -r -s /usr/sbin/nologin minecraft
-id -u minecraft-manager &>/dev/null || useradd -m -r -s /bin/bash minecraft-manager
-
-# Make sure groups are aligned
-usermod -aG minecraft minecraft-manager 2>/dev/null || true
-
-# Environment-specific paths
-export APP_DIR="/home/minecraft-manager/minecraft-manager"
-export DATA_DIR="/home/minecraft-manager/minecraft-data"
-export MINECRAFT_DIR="/home/minecraft/Minecraft"
-export LOG_DIR="/home/minecraft-manager/minecraft-logs"
-export BACKUP_DIR="/home/minecraft-manager/minecraft-backups"
-
-#!/bin/bash
 
 # Minecraft Server Manager - Complete Production Setup Script
 # Ubuntu 24.04 LTS - Supports domain or IP-based deployment
@@ -64,16 +22,16 @@ USE_SSL="${USE_SSL:-false}"
 GITHUB_REPO="${GITHUB_REPO:-https://github.com/landonis/Minecraft-Fabric-Server-Management-Panel.git}"
 
 # System Configuration
-MINECRAFT_VERSION="1.20.1"
-FABRIC_VERSION="0.15.3"
+MINECRAFT_VERSION="1.21.7"
+FABRIC_VERSION="0.16.14"
 NODE_VERSION="18"
 
 # System paths
-APP_DIR="$APP_DIR"
-MINECRAFT_DIR="$MINECRAFT_DIR"
-DATA_DIR="$DATA_DIR"
+APP_DIR="/home/ubuntu/minecraft-manager"
+MINECRAFT_DIR="/home/ubuntu/Minecraft"
+DATA_DIR="/home/ubuntu/minecraft-data"
 LOG_DIR="/var/log/minecraft-manager"
-BACKUP_DIR="$BACKUP_DIR"
+BACKUP_DIR="/home/ubuntu/minecraft-backups"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  Minecraft Server Manager Setup${NC}"
@@ -178,10 +136,12 @@ fi
 NODE_ACTUAL_VERSION=$(node -v)
 print_success "Node.js installed: $NODE_ACTUAL_VERSION"
 
-# Install Java 17
-print_status "Installing Java 17..."
-if ! command_exists java; then
-    apt install -y openjdk-17-jdk
+# Install Java 21
+print_status "Installing Java 21..."
+if ! command_exists java || ! java -version 2>&1 | grep -q 'version "21'; then
+    apt install -y openjdk-21-jdk
+    update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-21-openjdk-amd64/bin/java 1
+    update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
 fi
 
 JAVA_VERSION=$(java -version 2>&1 | head -n1 | cut -d'"' -f2)
@@ -308,6 +268,7 @@ DB_PATH=$DATA_DIR/data/database.db
 
 # Security Configuration
 JWT_SECRET=$JWT_SECRET
+SESSION_SECRET=$(openssl rand -hex 32)
 
 # System Paths
 APP_DIR=$APP_DIR
@@ -347,14 +308,12 @@ sudo -u minecraft-manager npm install --production
 print_status "Building backend..."
 cd "$APP_DIR/backend"
 sudo -u minecraft-manager npm install --production
-sudo -u minecraft-manager tsc
-npm run build
+sudo -u minecraft-manager npm run build
 
 # Build frontend
 print_status "Building frontend..."
 cd "$APP_DIR"
-sudo -u minecraft-manager tsc
-npm run build
+sudo -u minecraft-manager npm run build
 
 # Initialize database
 print_status "Initializing database..."
@@ -371,7 +330,6 @@ try {
 "
 
 # Setup Minecraft Fabric server
-
 print_status "Setting up Minecraft Fabric server..."
 
 FABRIC_JAR="$MINECRAFT_DIR/fabric-server-launch.jar"
@@ -428,32 +386,6 @@ EOF
 fi
 
 # Create systemd services
-
-
-# === Auto-detect and download latest Fabric installer ===
-cd "$MINECRAFT_DIR"
-FABRIC_META_URL="https://maven.fabricmc.net/net/fabricmc/fabric-installer/maven-metadata.xml"
-FABRIC_VERSION=$(curl -s "$FABRIC_META_URL" | grep "<latest>" | sed -E 's|.*<latest>(.*)</latest>.*|\1|')
-echo "🧵 Downloading Fabric installer version: $FABRIC_VERSION"
-wget -q -O fabric-installer.jar "https://maven.fabricmc.net/net/fabricmc/fabric-installer/$FABRIC_VERSION/fabric-installer-$FABRIC_VERSION.jar"
-sudo -u minecraft java -jar fabric-installer.jar server -mcversion 1.21.7 -downloadMinecraft
-rm -f fabric-installer.jar
-cd "$MINECRAFT_DIR"
-wget -q -O fabric-installer.jar "https://maven.fabricmc.net/net/fabricmc/fabric-installer/0.11.2/fabric-installer-0.11.2.jar"
-sudo -u minecraft java -jar fabric-installer.jar server -mcversion 1.21.7 -downloadMinecraft
-rm -f fabric-installer.jar
-
-# === Build and deploy Fabric mod ===
-cd "$APP_DIR/mods/player-viewer"
-./gradlew build --no-daemon
-
-MOD_JAR=$(find build/libs -name "*.jar" | head -n 1)
-if [[ -f "$MOD_JAR" ]]; then
-    echo "✅ Mod built successfully: $MOD_JAR"
-    cp "$MOD_JAR" "$MINECRAFT_DIR/mods/"
-else
-    echo "❌ Failed to build Fabric mod."
-fi
 print_status "Creating systemd services..."
 
 # Minecraft server service
@@ -640,37 +572,27 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
 # Configure firewall
+print_status "Configuring firewall..."
 
-print_status "Configuring iptables firewall..."
-
-# Flush existing rules
-iptables -F
-iptables -X
-iptables -t nat -F
-iptables -t mangle -F
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
-
-# Allow loopback
-iptables -A INPUT -i lo -j ACCEPT
-
-# Allow established connections
-iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+# Configure UFW
+ufw --force reset
+ufw default deny incoming
+ufw default allow outgoing
 
 # Allow SSH
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+ufw allow 22/tcp
 
 # Allow HTTP and HTTPS
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+ufw allow 80/tcp
+ufw allow 443/tcp
 
 # Allow Minecraft server port
-iptables -A INPUT -p tcp --dport 25565 -j ACCEPT
+ufw allow 25565/tcp
 
-# Save iptables rules across reboots (using iptables-persistent)
-apt install -y iptables-persistent
-netfilter-persistent save
+# Enable UFW
+ufw --force enable
+
+# Configure fail2ban
 print_status "Configuring fail2ban..."
 cat > /etc/fail2ban/jail.local << EOF
 [DEFAULT]
@@ -704,40 +626,40 @@ systemctl restart fail2ban
 print_status "Creating utility scripts..."
 
 # Backup script
-cat > /usr/local/bin/minecraft-backup.sh << 'EOF'
+cat > /usr/local/bin/minecraft-backup.sh << EOF
 #!/bin/bash
 BACKUP_DIR="$BACKUP_DIR"
 WORLD_DIR="$MINECRAFT_DIR/world"
 DATA_DIR="$DATA_DIR"
-DATE=$(date +%Y%m%d_%H%M%S)
+DATE=\$(date +%Y%m%d_%H%M%S)
 
-mkdir -p "$BACKUP_DIR"
+mkdir -p "\$BACKUP_DIR"
 
-echo "Starting backup at $(date)"
+echo "Starting backup at \$(date)"
 
 # Backup world
-if [[ -d "$WORLD_DIR" ]]; then
+if [[ -d "\$WORLD_DIR" ]]; then
     echo "Backing up world..."
-    tar -czf "$BACKUP_DIR/world_backup_$DATE.tar.gz" -C "$(dirname "$WORLD_DIR")" "$(basename "$WORLD_DIR")"
-    echo "World backup created: world_backup_$DATE.tar.gz"
+    tar -czf "\$BACKUP_DIR/world_backup_\$DATE.tar.gz" -C "\$(dirname "\$WORLD_DIR")" "\$(basename "\$WORLD_DIR")"
+    echo "World backup created: world_backup_\$DATE.tar.gz"
 else
-    echo "World directory not found: $WORLD_DIR"
+    echo "World directory not found: \$WORLD_DIR"
 fi
 
 # Backup database
-if [[ -f "$DATA_DIR/data/database.db" ]]; then
+if [[ -f "\$DATA_DIR/data/database.db" ]]; then
     echo "Backing up database..."
-    cp "$DATA_DIR/data/database.db" "$BACKUP_DIR/database_backup_$DATE.db"
-    echo "Database backup created: database_backup_$DATE.db"
+    cp "\$DATA_DIR/data/database.db" "\$BACKUP_DIR/database_backup_\$DATE.db"
+    echo "Database backup created: database_backup_\$DATE.db"
 fi
 
 # Clean up old backups (keep last 7)
 echo "Cleaning up old backups..."
-cd "$BACKUP_DIR"
+cd "\$BACKUP_DIR"
 ls -t world_backup_*.tar.gz 2>/dev/null | tail -n +8 | xargs -r rm
 ls -t database_backup_*.db 2>/dev/null | tail -n +8 | xargs -r rm
 
-echo "Backup completed at $(date)"
+echo "Backup completed at \$(date)"
 EOF
 
 chmod +x /usr/local/bin/minecraft-backup.sh
@@ -798,7 +720,7 @@ EOF
 chmod +x /usr/local/bin/minecraft-status.sh
 
 # Update script
-cat > /usr/local/bin/minecraft-update.sh << 'EOF'
+cat > /usr/local/bin/minecraft-update.sh << EOF
 #!/bin/bash
 APP_DIR="$APP_DIR"
 
@@ -808,23 +730,21 @@ echo "Updating Minecraft Server Manager..."
 systemctl stop minecraft-manager
 
 # Backup current version
-cp -r "$APP_DIR" "$APP_DIR.backup.$(date +%s)"
+cp -r "\$APP_DIR" "\$APP_DIR.backup.\$(date +%s)"
 
 # Pull latest changes
-cd "$APP_DIR"
+cd "\$APP_DIR"
 sudo -u minecraft-manager git pull origin main
 
 # Install dependencies and rebuild
 sudo -u minecraft-manager npm install --production
 cd backend
 sudo -u minecraft-manager npm install --production
-sudo -u minecraft-manager tsc
-npm run build
+sudo -u minecraft-manager npm run build
 
 # Build frontend
-cd "$APP_DIR"
-sudo -u minecraft-manager tsc
-npm run build
+cd "\$APP_DIR"
+sudo -u minecraft-manager npm run build
 
 # Restart services
 systemctl start minecraft-manager
@@ -992,12 +912,3 @@ echo ""
 echo -e "${CYAN}📖 For detailed documentation, see README.md${NC}"
 echo -e "${CYAN}🐛 For issues and support, check the GitHub repository${NC}"
 echo ""
-chmod +x /home/minecraft-manager/minecraft-data/scripts/minecraft-update.sh
-
-# === Write default .env for Fabric mod ===
-mkdir -p /home/minecraft/Minecraft/mods/player-viewer
-echo "WEBSOCKET_SERVER=ws://localhost:3020" > /home/minecraft/Minecraft/mods/player-viewer/.env
-chown -R minecraft:minecraft /home/minecraft/Minecraft/mods/player-viewer
-
-# === Run post-deployment health check ===
-bash deployment/post_deploy_check.sh

@@ -30,6 +30,7 @@ const generateToken = (user: User) => {
     { expiresIn: '12h' }
   );
 };
+
 const router = express.Router();
 
 // POST /api/auth/login
@@ -116,34 +117,46 @@ router.post('/change-password', authenticateToken, async (req, res) => {
   }
 });
 
-export default router;
-
-import db from '../db';
-
-router.get('/users', async (_req, res) => {
-  const users = await db.all('SELECT id, username, isAdmin FROM users');
-  res.json({ users });
-});
-
-router.post('/register', async (req, res) => {
-  const { username, password, isAdmin } = req.body;
+// GET /api/auth/users
+router.get('/users', authenticateToken, async (req, res) => {
   try {
-    const SALT_ROUNDS = 10;
+    const users = db.prepare('SELECT id, username, is_admin as isAdmin FROM users').all();
+    res.json({ users });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/auth/register
+router.post('/register', authenticateToken, async (req, res) => {
+  try {
+    const { username, password, isAdmin } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const SALT_ROUNDS = 12;
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const result = await db.run(
-      'INSERT INTO users (username, password_hash, isAdmin) VALUES (?, ?, ?)',
-      [username, passwordHash, isAdmin ? 1 : 0]
-    );
-    const userId = (result as any).lastID;
-    req.session.user = { id: userId, username, isAdmin: !!isAdmin };
-    res.json({ id: userId, username, isAdmin: !!isAdmin });
-  } catch (err) {
-    console.error('Register error', err);
-    res.status(500).json({ error: 'User creation failed' });
+    
+    const result = db.prepare(
+      'INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)'
+    ).run(username, passwordHash, isAdmin ? 1 : 0);
+
+    res.json({ 
+      id: result.lastInsertRowid, 
+      username, 
+      isAdmin: !!isAdmin 
+    });
+  } catch (error) {
+    console.error('Register error:', error);
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      res.status(400).json({ error: 'Username already exists' });
+    } else {
+      res.status(500).json({ error: 'User creation failed' });
+    }
   }
 });
-  } catch (err) {
-    console.error('Register error', err);
-    res.status(500).json({ error: 'User creation failed' });
-  }
-});
+
+export default router;

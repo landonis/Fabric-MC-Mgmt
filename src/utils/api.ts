@@ -1,3 +1,5 @@
+import { User, AuthResponse } from '../types';
+
 const API_BASE = '/api';
 
 class ApiClient {
@@ -38,15 +40,15 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
 
     return response.json();
   }
 
-  private async upload(endpoint: string, file: File): Promise<any> {
+  private async upload(endpoint: string, file: File, fieldName: string = 'file'): Promise<any> {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append(fieldName, file);
 
     const response = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
@@ -58,21 +60,21 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
 
     return response.json();
   }
 
   // Auth endpoints
-  async login(username: string, password: string) {
+  async login(username: string, password: string): Promise<AuthResponse> {
     return this.request('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
   }
 
-  async register(username: string, password: string) {
+  async register(username: string, password: string): Promise<AuthResponse> {
     return this.request('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
@@ -134,7 +136,7 @@ class ApiClient {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
     
     return response.blob();
