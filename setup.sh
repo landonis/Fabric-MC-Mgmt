@@ -6,15 +6,20 @@ echo "🚀 Starting Minecraft Manager deployment..."
 
 # Create necessary users and dirs
 useradd -m -r -s /bin/bash minecraft || true
-mkdir -p /home/minecraft/Minecraft
-mkdir -p /home/minecraft-manager/minecraft-data/scripts
+useradd -m -r -s /bin/bash minecraft-manager || true
+mkdir -p /opt/minecraft
+mkdir -p /opt/minecraft-manager
+mkdir -p /opt/minecraft-manager/backup
+mkdir -p /opt/minecraft-manager/minecraft-data/scripts
 
+sudo chown -R minecraft-manager:minecrarft-manager /opt/minecraft-manager
+sudo chown -R minecraft:minecraft /opt/minecraft
 # Install dependencies
 apt update
 apt install -y openjdk-21-jdk curl wget unzip sqlite3 nginx nodejs npm git
 
 # Set up environment
-cd /home/minecraft-manager
+cd /opt/minecraft-manager
 
 # === BACKEND ===
 cd backend
@@ -29,7 +34,7 @@ After=network.target
 
 [Service]
 User=minecraft
-WorkingDirectory=/home/minecraft-manager/backend
+WorkingDirectory=/opt/minecraft-manager/backend
 ExecStart=/usr/bin/npm start
 Restart=always
 
