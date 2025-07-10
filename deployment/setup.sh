@@ -4,7 +4,7 @@
 # Ubuntu 24.04 LTS - Supports domain or IP-based deployment
 # This script is idempotent and can be run multiple times safely
 
-set -e
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 # Colors for output
 RED='\033[0;31m'
@@ -33,11 +33,11 @@ DATA_DIR="/home/ubuntu/minecraft-data"
 LOG_DIR="/var/log/minecraft-manager"
 BACKUP_DIR="/home/ubuntu/minecraft-backups"
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Minecraft Server Manager Setup${NC}"
-echo -e "${BLUE}  Production-Ready Deployment${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
+# Error handling
+error_exit() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+    exit 1
+}
 
 # Function to print status messages
 print_status() {
@@ -73,8 +73,68 @@ user_exists() {
 
 # Function to get server IP
 get_server_ip() {
-    curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || echo "YOUR_SERVER_IP"
+    curl -s --max-time 10 ifconfig.me 2>/dev/null || curl -s --max-time 10 ipinfo.io/ip 2>/dev/null || echo "YOUR_SERVER_IP"
 }
+
+# Function to validate environment
+validate_environment() {
+    print_status "Validating environment..."
+    
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        error_exit "This script must be run as root (use sudo)"
+    fi
+    
+    # Check Ubuntu version
+    if ! grep -q "Ubuntu 24.04" /etc/os-release 2>/dev/null; then
+        print_warning "This script is designed for Ubuntu 24.04. Continuing anyway..."
+    fi
+    
+    # Check available disk space (minimum 10GB)
+    AVAILABLE_SPACE=$(df / | awk 'NR==2 {print $4}')
+    if [[ $AVAILABLE_SPACE -lt 10485760 ]]; then  # 10GB in KB
+        error_exit "Insufficient disk space. At least 10GB required."
+    fi
+    
+    # Check available memory (minimum 1GB)
+    AVAILABLE_MEMORY=$(free -m | awk 'NR==2{print $2}')
+    if [[ $AVAILABLE_MEMORY -lt 1024 ]]; then
+        print_warning "Less than 1GB RAM available. Performance may be affected."
+    fi
+    
+    print_success "Environment validation passed"
+}
+
+# Function to setup error handling and logging
+setup_logging() {
+    # Create log directory
+    mkdir -p "$LOG_DIR"
+    
+    # Setup log file
+    LOG_FILE="$LOG_DIR/setup-$(date +%Y%m%d-%H%M%S).log"
+    exec 1> >(tee -a "$LOG_FILE")
+    exec 2> >(tee -a "$LOG_FILE" >&2)
+    
+    print_status "Logging to: $LOG_FILE"
+}
+
+# Function to cleanup on exit
+cleanup() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        print_error "Setup failed with exit code $exit_code"
+        print_status "Check the log file: $LOG_FILE"
+        print_status "You can re-run this script to continue from where it left off"
+    fi
+}
+
+trap cleanup EXIT
+
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}  Minecraft Server Manager Setup${NC}"
+echo -e "${BLUE}  Production-Ready Deployment${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
 
 # Detect system information
 print_status "Detecting system information..."
@@ -88,58 +148,45 @@ echo "  Server IP: $SERVER_IP"
 echo "  Domain: ${DOMAIN:-"Not configured (IP-only setup)"}"
 echo ""
 
-# Check if running as root
-if [[ $EUID -ne 0 ]]; then
-   print_error "This script must be run as root (use sudo)"
-   exit 1
-fi
+# Validate environment
+validate_environment
+
+# Setup logging
+setup_logging
 
 # Update system packages
 print_status "Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
-apt update -qq
-apt upgrade -y -qq
+apt update -qq || error_exit "Failed to update package lists"
+apt upgrade -y -qq || error_exit "Failed to upgrade packages"
 
 # Install essential packages
 print_status "Installing essential packages..."
-apt install -y -qq \
-    curl \
-    wget \
-    gnupg \
-    lsb-release \
-    software-properties-common \
-    apt-transport-https \
-    ca-certificates \
-    unzip \
-    tar \
-    git \
-    htop \
-    tree \
-    nano \
-    vim \
-    ufw \
-    fail2ban \
-    logrotate \
-    build-essential \
-    python3 \
-    python3-dev \
-    make \
-    g++ \
-    supervisor \
-    rsyslog \
-    cron \
-    ntp
+ESSENTIAL_PACKAGES=(
+    curl wget gnupg lsb-release software-properties-common apt-transport-https
+    ca-certificates unzip tar git htop tree nano vim ufw fail2ban logrotate
+    build-essential python3 python3-dev make g++ supervisor rsyslog cron ntp
+    sqlite3 bc netcat-openbsd
+)
+
+for package in "${ESSENTIAL_PACKAGES[@]}"; do
+    if ! dpkg -l | grep -q "^ii  $package "; then
+        apt install -y -qq "$package" || error_exit "Failed to install $package"
+    fi
+done
+
+print_success "Essential packages installed"
 
 # Configure NTP for accurate time
 print_status "Configuring NTP..."
-systemctl enable ntp
-systemctl start ntp
+systemctl enable ntp || print_warning "Failed to enable NTP"
+systemctl start ntp || print_warning "Failed to start NTP"
 
 # Install Node.js
 print_status "Installing Node.js $NODE_VERSION..."
 if ! command_exists node || [[ $(node -v | cut -d'v' -f2 | cut -d'.' -f1) -lt $NODE_VERSION ]]; then
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
-    apt install -y nodejs
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - || error_exit "Failed to add Node.js repository"
+    apt install -y nodejs || error_exit "Failed to install Node.js"
 fi
 
 NODE_ACTUAL_VERSION=$(node -v)
@@ -148,9 +195,9 @@ print_success "Node.js installed: $NODE_ACTUAL_VERSION"
 # Install Java 21
 print_status "Installing Java 21..."
 if ! command_exists java || ! java -version 2>&1 | grep -q 'version "21'; then
-    apt install -y openjdk-21-jdk
-    update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-21-openjdk-amd64/bin/java 1
-    update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+    apt install -y openjdk-21-jdk || error_exit "Failed to install Java 21"
+    update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-21-openjdk-amd64/bin/java 1 || print_warning "Failed to set Java alternatives"
+    update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java || print_warning "Failed to set default Java"
 fi
 
 JAVA_VERSION=$(java -version 2>&1 | head -n1 | cut -d'"' -f2)
@@ -159,32 +206,28 @@ print_success "Java installed: $JAVA_VERSION"
 # Install NGINX
 print_status "Installing NGINX..."
 if ! command_exists nginx; then
-    apt install -y nginx
-fi
-
-# Install SQLite
-print_status "Installing SQLite..."
-if ! command_exists sqlite3; then
-    apt install -y sqlite3
+    apt install -y nginx || error_exit "Failed to install NGINX"
 fi
 
 # Install SSL tools if needed
 if [[ "$USE_SSL" == "true" && -n "$DOMAIN" ]]; then
     print_status "Installing SSL tools..."
-    apt install -y certbot python3-certbot-nginx
+    if ! command_exists certbot; then
+        apt install -y certbot python3-certbot-nginx || error_exit "Failed to install SSL tools"
+    fi
 fi
 
 # Create system users
 print_status "Creating system users..."
 if ! user_exists "minecraft"; then
-    useradd -r -s /bin/false -d $MINECRAFT_DIR minecraft
+    useradd -r -s /bin/false -d $MINECRAFT_DIR minecraft || error_exit "Failed to create minecraft user"
     print_success "Created minecraft user"
 else
     print_success "minecraft user already exists"
 fi
 
 if ! user_exists "minecraft-manager"; then
-    useradd -r -s /bin/false -d $APP_DIR minecraft-manager
+    useradd -r -s /bin/false -d $APP_DIR minecraft-manager || error_exit "Failed to create minecraft-manager user"
     print_success "Created minecraft-manager user"
 else
     print_success "minecraft-manager user already exists"
@@ -210,21 +253,21 @@ directories=(
 )
 
 for dir in "${directories[@]}"; do
-    mkdir -p "$dir"
+    mkdir -p "$dir" || error_exit "Failed to create directory: $dir"
 done
 
 # Set ownership and permissions
 print_status "Setting permissions..."
-chown -R minecraft-manager:minecraft-manager "$APP_DIR"
-chown -R minecraft:minecraft "$MINECRAFT_DIR"
-chown -R minecraft-manager:minecraft-manager "$DATA_DIR"
-chown -R minecraft-manager:minecraft-manager "$LOG_DIR"
-chown -R minecraft-manager:minecraft-manager "$BACKUP_DIR"
-chown -R minecraft:minecraft "/tmp/minecraft-imports"
+chown -R minecraft-manager:minecraft-manager "$APP_DIR" || error_exit "Failed to set ownership for $APP_DIR"
+chown -R minecraft:minecraft "$MINECRAFT_DIR" || error_exit "Failed to set ownership for $MINECRAFT_DIR"
+chown -R minecraft-manager:minecraft-manager "$DATA_DIR" || error_exit "Failed to set ownership for $DATA_DIR"
+chown -R minecraft-manager:minecraft-manager "$LOG_DIR" || error_exit "Failed to set ownership for $LOG_DIR"
+chown -R minecraft-manager:minecraft-manager "$BACKUP_DIR" || error_exit "Failed to set ownership for $BACKUP_DIR"
+chown -R minecraft:minecraft "/tmp/minecraft-imports" || error_exit "Failed to set ownership for temp directory"
 
 # Set proper permissions
-chmod 755 "$APP_DIR" "$MINECRAFT_DIR" "$DATA_DIR" "$LOG_DIR" "$BACKUP_DIR"
-chmod 1777 "/tmp/minecraft-imports"  # Sticky bit for temp directory
+chmod 755 "$APP_DIR" "$MINECRAFT_DIR" "$DATA_DIR" "$LOG_DIR" "$BACKUP_DIR" || error_exit "Failed to set directory permissions"
+chmod 1777 "/tmp/minecraft-imports" || error_exit "Failed to set temp directory permissions"
 
 # Clone or update application
 print_status "Setting up application code..."
@@ -236,17 +279,18 @@ else
     print_status "Cloning repository..."
     if [[ -d "$APP_DIR" ]] && [[ "$(ls -A $APP_DIR)" ]]; then
         print_warning "Directory not empty, backing up..."
-        mv "$APP_DIR" "$APP_DIR.backup.$(date +%s)"
-        mkdir -p "$APP_DIR"
+        mv "$APP_DIR" "$APP_DIR.backup.$(date +%s)" || error_exit "Failed to backup existing directory"
+        mkdir -p "$APP_DIR" || error_exit "Failed to create app directory"
     fi
-    sudo -u minecraft-manager git clone "$GITHUB_REPO" "$APP_DIR"
+    sudo -u minecraft-manager git clone "$GITHUB_REPO" "$APP_DIR" || error_exit "Failed to clone repository"
 fi
 
-cd "$APP_DIR"
+cd "$APP_DIR" || error_exit "Failed to change to app directory"
 
 # Generate secure configuration
 print_status "Generating secure configuration..."
 JWT_SECRET=$(openssl rand -hex 32)
+SESSION_SECRET=$(openssl rand -hex 32)
 
 # Determine frontend URL
 if [[ -n "$DOMAIN" ]]; then
@@ -277,7 +321,7 @@ DB_PATH=$DATA_DIR/data/database.db
 
 # Security Configuration
 JWT_SECRET=$JWT_SECRET
-SESSION_SECRET=$(openssl rand -hex 32)
+SESSION_SECRET=$SESSION_SECRET
 
 # System Paths
 APP_DIR=$APP_DIR
@@ -306,27 +350,27 @@ LOG_LEVEL=info
 EOF
 
 # Set secure permissions on environment file
-chmod 600 "$APP_DIR/.env"
-chown minecraft-manager:minecraft-manager "$APP_DIR/.env"
+chmod 600 "$APP_DIR/.env" || error_exit "Failed to set .env permissions"
+chown minecraft-manager:minecraft-manager "$APP_DIR/.env" || error_exit "Failed to set .env ownership"
 
 # Install application dependencies
 print_status "Installing application dependencies..."
-sudo -u minecraft-manager npm install --production
+sudo -u minecraft-manager npm install --production || error_exit "Failed to install frontend dependencies"
 
 # Install backend dependencies and build
 print_status "Building backend..."
-cd "$APP_DIR/backend"
-sudo -u minecraft-manager npm install --production
-sudo -u minecraft-manager npm run build
+cd "$APP_DIR/backend" || error_exit "Failed to change to backend directory"
+sudo -u minecraft-manager npm install --production || error_exit "Failed to install backend dependencies"
+sudo -u minecraft-manager npm run build || error_exit "Failed to build backend"
 
 # Build frontend
 print_status "Building frontend..."
-cd "$APP_DIR"
-sudo -u minecraft-manager npm run build
+cd "$APP_DIR" || error_exit "Failed to change to app directory"
+sudo -u minecraft-manager npm run build || error_exit "Failed to build frontend"
 
 # Initialize database
 print_status "Initializing database..."
-cd "$APP_DIR"
+cd "$APP_DIR" || error_exit "Failed to change to app directory"
 sudo -u minecraft-manager NODE_ENV=production node -e "
 const { initDatabase } = require('./backend/dist/database/init.js');
 try {
@@ -336,7 +380,7 @@ try {
   console.error('❌ Database initialization failed:', error);
   process.exit(1);
 }
-"
+" || error_exit "Failed to initialize database"
 
 # Setup Minecraft Fabric server
 print_status "Setting up Minecraft Fabric server..."
@@ -357,19 +401,20 @@ fi
 
 if [[ "$FABRIC_VALID" == false ]]; then
     print_status "Downloading and installing Minecraft Fabric server..."
-    cd "$MINECRAFT_DIR"
+    cd "$MINECRAFT_DIR" || error_exit "Failed to change to Minecraft directory"
 
     # Download Fabric installer
-    wget -q -O fabric-installer.jar "https://maven.fabricmc.net/net/fabricmc/fabric-installer/$FABRIC_VERSION/fabric-installer-$FABRIC_VERSION.jar"
+    FABRIC_INSTALLER_URL="https://maven.fabricmc.net/net/fabricmc/fabric-installer/$FABRIC_VERSION/fabric-installer-$FABRIC_VERSION.jar"
+    wget -q -O fabric-installer.jar "$FABRIC_INSTALLER_URL" || error_exit "Failed to download Fabric installer"
 
     # Install Fabric server
-    sudo -u minecraft java -jar fabric-installer.jar server -mcversion "$MINECRAFT_VERSION" -downloadMinecraft
+    sudo -u minecraft java -jar fabric-installer.jar server -mcversion "$MINECRAFT_VERSION" -downloadMinecraft || error_exit "Failed to install Fabric server"
 
     # Clean up installer
     rm -f fabric-installer.jar
 
     # Accept EULA
-    echo "eula=true" > eula.txt
+    echo "eula=true" > eula.txt || error_exit "Failed to create EULA file"
 
     # Create server.properties if missing
     if [[ ! -f server.properties ]]; then
@@ -390,7 +435,7 @@ EOF
     fi
 
     # Set ownership
-    chown -R minecraft:minecraft "$MINECRAFT_DIR"
+    chown -R minecraft:minecraft "$MINECRAFT_DIR" || error_exit "Failed to set Minecraft directory ownership"
     print_success "Minecraft Fabric server installed"
 fi
 
@@ -483,9 +528,9 @@ WantedBy=multi-user.target
 EOF
 
 # Reload systemd and enable services
-systemctl daemon-reload
-systemctl enable minecraft-server
-systemctl enable minecraft-manager
+systemctl daemon-reload || error_exit "Failed to reload systemd"
+systemctl enable minecraft-server || error_exit "Failed to enable minecraft-server"
+systemctl enable minecraft-manager || error_exit "Failed to enable minecraft-manager"
 
 # Configure NGINX
 print_status "Configuring NGINX..."
@@ -574,32 +619,33 @@ server {
 EOF
 
 # Enable NGINX site
-ln -sf /etc/nginx/sites-available/minecraft-manager /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/minecraft-manager /etc/nginx/sites-enabled/ || error_exit "Failed to enable NGINX site"
 rm -f /etc/nginx/sites-enabled/default
 
 # Test and reload NGINX
-nginx -t && systemctl reload nginx
+nginx -t || error_exit "NGINX configuration test failed"
+systemctl reload nginx || error_exit "Failed to reload NGINX"
 
 # Configure firewall
 print_status "Configuring firewall..."
 
 # Configure UFW
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
+ufw --force reset || error_exit "Failed to reset UFW"
+ufw default deny incoming || error_exit "Failed to set UFW default deny incoming"
+ufw default allow outgoing || error_exit "Failed to set UFW default allow outgoing"
 
 # Allow SSH
-ufw allow 22/tcp
+ufw allow 22/tcp || error_exit "Failed to allow SSH"
 
 # Allow HTTP and HTTPS
-ufw allow 80/tcp
-ufw allow 443/tcp
+ufw allow 80/tcp || error_exit "Failed to allow HTTP"
+ufw allow 443/tcp || error_exit "Failed to allow HTTPS"
 
 # Allow Minecraft server port
-ufw allow 25565/tcp
+ufw allow 25565/tcp || error_exit "Failed to allow Minecraft port"
 
 # Enable UFW
-ufw --force enable
+ufw --force enable || error_exit "Failed to enable UFW"
 
 # Configure fail2ban
 print_status "Configuring fail2ban..."
@@ -628,8 +674,8 @@ logpath = /var/log/nginx/error.log
 maxretry = 10
 EOF
 
-systemctl enable fail2ban
-systemctl restart fail2ban
+systemctl enable fail2ban || error_exit "Failed to enable fail2ban"
+systemctl restart fail2ban || error_exit "Failed to restart fail2ban"
 
 # Create utility scripts
 print_status "Creating utility scripts..."
@@ -671,7 +717,7 @@ ls -t database_backup_*.db 2>/dev/null | tail -n +8 | xargs -r rm
 echo "Backup completed at \$(date)"
 EOF
 
-chmod +x /usr/local/bin/minecraft-backup.sh
+chmod +x /usr/local/bin/minecraft-backup.sh || error_exit "Failed to make backup script executable"
 
 # Status check script
 cat > /usr/local/bin/minecraft-status.sh << 'EOF'
@@ -726,7 +772,7 @@ echo "Minecraft: $(du -sh $MINECRAFT_DIR 2>/dev/null | cut -f1 || echo 'N/A')"
 echo "Backups: $(du -sh $BACKUP_DIR 2>/dev/null | cut -f1 || echo 'N/A')"
 EOF
 
-chmod +x /usr/local/bin/minecraft-status.sh
+chmod +x /usr/local/bin/minecraft-status.sh || error_exit "Failed to make status script executable"
 
 # Update script
 cat > /usr/local/bin/minecraft-update.sh << EOF
@@ -761,7 +807,7 @@ systemctl start minecraft-manager
 echo "Update completed!"
 EOF
 
-chmod +x /usr/local/bin/minecraft-update.sh
+chmod +x /usr/local/bin/minecraft-update.sh || error_exit "Failed to make update script executable"
 
 # Setup log rotation
 print_status "Configuring log rotation..."
@@ -808,8 +854,8 @@ EOF
 
 # Start services
 print_status "Starting services..."
-systemctl start minecraft-manager
-systemctl start minecraft-server
+systemctl start minecraft-manager || error_exit "Failed to start minecraft-manager"
+systemctl start minecraft-server || error_exit "Failed to start minecraft-server"
 
 # Wait for services to start
 sleep 10
@@ -840,7 +886,7 @@ echo "  NGINX: $NGINX_STATUS"
 if [[ "$USE_SSL" == "true" && -n "$DOMAIN" && "$DOMAIN" != "localhost" ]]; then
     print_status "Setting up SSL certificate..."
     if command_exists certbot; then
-        certbot --nginx -d "$DOMAIN" --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect
+        certbot --nginx -d "$DOMAIN" --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect || print_warning "SSL certificate installation failed"
         if [[ $? -eq 0 ]]; then
             print_success "SSL certificate installed successfully"
         else
@@ -851,6 +897,36 @@ if [[ "$USE_SSL" == "true" && -n "$DOMAIN" && "$DOMAIN" != "localhost" ]]; then
     fi
 else
     print_warning "Skipping SSL setup (USE_SSL=$USE_SSL, DOMAIN=$DOMAIN)"
+fi
+
+# Run additional security hardening
+if [[ -f "deployment/security-hardening.sh" ]]; then
+    print_status "Applying additional security hardening..."
+    bash deployment/security-hardening.sh || print_warning "Security hardening script failed"
+fi
+
+# Set up monitoring
+if [[ -f "deployment/monitoring.sh" ]]; then
+    print_status "Setting up monitoring and alerting..."
+    bash deployment/monitoring.sh || print_warning "Monitoring setup script failed"
+fi
+
+# Final health check
+print_status "Running final health check..."
+sleep 5
+
+# Test web interface
+if curl -f -s http://localhost/api/health > /dev/null; then
+    print_success "Web interface health check passed"
+else
+    print_warning "Web interface health check failed"
+fi
+
+# Test database
+if [[ -f "$DATA_DIR/data/database.db" ]] && sqlite3 "$DATA_DIR/data/database.db" "SELECT 1;" > /dev/null 2>&1; then
+    print_success "Database health check passed"
+else
+    print_warning "Database health check failed"
 fi
 
 # Final status and information
@@ -921,18 +997,6 @@ echo ""
 echo -e "${CYAN}📖 For detailed documentation, see README.md${NC}"
 echo -e "${CYAN}🐛 For issues and support, check the GitHub repository${NC}"
 echo ""
-
-# Run additional security hardening
-if [[ -f "deployment/security-hardening.sh" ]]; then
-    print_status "Applying additional security hardening..."
-    bash deployment/security-hardening.sh
-fi
-
-# Set up monitoring
-if [[ -f "deployment/monitoring.sh" ]]; then
-    print_status "Setting up monitoring and alerting..."
-    bash deployment/monitoring.sh
-fi
 
 print_success "Production deployment completed with security hardening and monitoring!"
 print_status "Run '/usr/local/bin/minecraft-security-audit.sh' to verify security configuration"

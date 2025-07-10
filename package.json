@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:check": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "setup": "chmod +x ./deployment/setup.sh && echo 'Setup script is ready. Run: sudo ./deployment/setup.sh'",
+    "setup": "chmod +x ./deployment/setup.sh && chmod +x ./deployment/pre-flight-check.sh && echo 'Setup scripts ready. Run pre-flight check: sudo ./deployment/pre-flight-check.sh'",
+    "deploy": "sudo ./deployment/setup.sh",
+    "verify": "sudo ./deployment/post-deployment-verify.sh",
     "backend:dev": "cd backend && npm run dev",
     "backend:build": "cd backend && npm run build",
-    "backend:start": "cd backend && npm start"
+    "backend:start": "cd backend && npm start",
+    "test:deployment": "sudo ./deployment/pre-flight-check.sh && sudo ./deployment/setup.sh && sudo ./deployment/post-deployment-verify.sh"
   },
   "dependencies": {
     "express-rate-limit": "^7.5.1",
