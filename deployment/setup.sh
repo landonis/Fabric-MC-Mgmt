@@ -360,6 +360,7 @@ sudo -u minecraft-manager npm install --production || error_exit "Failed to inst
 # Install backend dependencies and build
 print_status "Building backend..."
 cd "$APP_DIR/backend" || error_exit "Failed to change to backend directory"
+npm install --save-dev @types/node
 sudo -u minecraft-manager npm install --production || error_exit "Failed to install backend dependencies"
 sudo -u minecraft-manager npm run build || error_exit "Failed to build backend"
 
